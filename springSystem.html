@@ -1,0 +1,201 @@
+<html>
+	<head>
+		<title>springSystem</title>
+		<style>
+			body { margin: 0; }
+			canvas { width: 100%; height: 100% }
+		</style>
+	</head>
+	<body>
+		<script src="three.js"></script>
+		<script src="OrbitControls.js"></script>
+		<script>
+
+			const fov = 60;
+		  const aspect = 2;  // the canvas default
+		  const near = 0.1;
+		  const far = 1000;
+		  const camera = new THREE.PerspectiveCamera(fov, aspect, near, far);
+			camera.position.y = -5;
+			camera.position.z = 60;
+			var renderer = new THREE.WebGLRenderer();
+			renderer.setSize( window.innerWidth, window.innerHeight);
+			renderer.gammaInput = true;
+      renderer.gammaOutput = true;
+			document.body.appendChild( renderer.domElement );
+
+    	const scene = new THREE.Scene();
+
+			var controls = new THREE.OrbitControls( camera, renderer.domElement );
+
+			const pointLight = new THREE.PointLight(0xFFFFFF);
+			const pointLight2 = new THREE.PointLight(0x404040);
+
+			var radius = 10;
+			var sphereGeometry = new THREE.SphereGeometry(radius, 32, 32);
+			var sphereMaterial = new THREE.MeshStandardMaterial ({color: 0x0011ff, metalness: 0.5,roughness: 0.5});
+			var sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+			sphere.position.y = -15;
+			scene.add(sphere);
+
+			// set its position
+			pointLight.position.x = -100;
+			pointLight.position.y = 100;
+			pointLight.position.z = 0;
+
+			pointLight2.position.x = 100;
+			pointLight2.position.y = 10;
+			pointLight2.position.z = 30;
+
+			// add to the scene
+			scene.add(pointLight);
+			var light = new THREE.AmbientLight( 0x404040 ); // soft white light
+			scene.add(light);
+
+			var particleCount = 60;
+			var particles = [];
+			var particleRadius = 0.2;
+			var particleGeometry = new THREE.SphereGeometry(particleRadius, 16, 16);
+			var particleMaterial = new THREE.MeshLambertMaterial(
+			{
+				color: 0xC9000A
+			});
+
+			var pMass = 0.1;
+			var G = -9.8;
+			var gravity = G*pMass;
+			var gravF = new THREE.Vector3(0,gravity,0);
+
+      var count = 10;
+
+			for(var i = 0; i < particleCount; i++){
+				particles[i] = new THREE.Mesh( particleGeometry, particleMaterial );
+				particles[i].position.x = count;
+				particles[i].position.y = 0;
+				particles[i].position.z = 0;
+        particles[i].velocity = new THREE.Vector3();
+				particles[i].force = new THREE.Vector3();
+				particles[i].prevPos = new THREE.Vector3(particles[i].position.x, particles[i].position.y, particles[i].position.z);
+        count-=0.4;
+				scene.add(particles[i]);
+			}
+			var springs = new Array();
+			for(var i = 0; i < particleCount-1; i++){
+				springs[i] = new THREE.Vector3();
+			}
+
+			var damping = 0.01;
+			var clock = new THREE.Clock();
+
+			var animate = function () {
+				var	dt = clock.getDelta();
+				requestAnimationFrame( animate );
+
+
+
+				//##################COLLISION
+				for (i = 0; i<particleCount; i++){
+
+					var prevPos = new THREE.Vector3();
+					prevPos.copy(particles[i].prevPos);
+					//var prevVel = new THREE.Vector3(particles[i].velocity.x, particles[i].velocity.y, particles[i].velocity.z);
+					var temp = new THREE.Vector3(particles[i].position.x-sphere.position.x, particles[i].position.y-sphere.position.y, particles[i].position.z-sphere.position.z);
+
+					if( temp.dot(temp) <= radius*radius){
+
+						var sphereDotSphere = sphere.position.dot(sphere.position);
+						var prevPosDotPrevPos = prevPos.dot(prevPos);
+
+						var alphaTemp = new THREE.Vector3(particles[i].position.x-prevPos.x, particles[i].position.y-prevPos.y, particles[i].position.z-prevPos.z)
+						var alpha = alphaTemp.dot(alphaTemp);
+
+						var delta = new THREE.Vector3(prevPos.x - sphere.position.x, prevPos.y -sphere.position.y, prevPos.x - sphere.position.z);
+						var beta = 2*alphaTemp.dot(delta);
+
+						var gamma = sphereDotSphere + prevPosDotPrevPos - (2*prevPos.dot(sphere.position)) - radius*radius;
+
+						lambda1 = (-beta + Math.sqrt(beta*beta - 4*alpha*gamma))/(2*alpha);
+						lambda2 = (-beta - Math.sqrt(beta*beta - 4*alpha*gamma))/(2*alpha);
+
+						var lambda;
+						if (lambda1 <= 1 && lambda1 >= 0 &&lambda2 <= 1 && lambda2 >= 0 ){
+							lambda = Math.min(lambda1,lambda2);
+						}
+						else if (lambda1 <= 1 && lambda1 >= 0  ){
+							lambda = lambda1;
+						}
+						else if(lambda2 <= 1 && lambda2 >= 0){
+							lambda = lambda2;
+						}
+
+						var contactPoint = new THREE.Vector3(prevPos.x+lambda*(alphaTemp.x), prevPos.y+lambda*(alphaTemp.y), prevPos.z+lambda*(alphaTemp.z));
+						var normal = new THREE.Vector3(contactPoint.x - sphere.position.x, contactPoint.y - sphere.position.y, contactPoint.z - sphere.position.z);
+						normal.normalize();
+						var d = -(normal.dot(contactPoint));
+						planeCol(normal, contactPoint, particles[i].position, particles[i].velocity);
+					}
+				}
+
+				//##################SPRING FORCES
+        var k_e = 100;
+        var k_d = 0.1;
+				var springLength = 0.4;
+        for (var i = 0; i < particleCount-1; i++) {
+
+					p2_p1 = new THREE.Vector3(  particles[i+1].position.x-particles[i].position.x,
+																			particles[i+1].position.y-particles[i].position.y,
+																			particles[i+1].position.z-particles[i].position.z);
+
+					p2_p1_Norm = new THREE.Vector3(  particles[i+1].position.x-particles[i].position.x,
+																					 particles[i+1].position.y-particles[i].position.y,
+																					 particles[i+1].position.z-particles[i].position.z);
+					p2_p1_Norm.normalize();
+
+					v2_v1 = new THREE.Vector3(  particles[i+1].velocity.x-particles[i].velocity.x,
+																			particles[i+1].velocity.y-particles[i].velocity.y,
+																			particles[i+1].velocity.z-particles[i].velocity.z);
+
+					var absVal = Math.sqrt(p2_p1.x*p2_p1.x+p2_p1.y*p2_p1.y+p2_p1.z*p2_p1.z);
+
+					var temp = k_e*(absVal-springLength);
+					var temp_2 = (v2_v1.clone().dot(p2_p1_Norm))*(k_d);
+          springs[i].copy(p2_p1_Norm.multiplyScalar(temp+temp_2));
+
+				}
+
+				//##################COLLISION FUNCTION
+				function planeCol(n, cp, pp, pv){
+					var d = -(n.x*cp.x+n.y*cp.y+n.z*cp.z);
+					var dotProdPos = (n.x*pp.x)+(n.y*pp.y)+(n.z*pp.z);
+					var dotProdVel = (n.x*pv.x)+(n.y*pv.y)+(n.z*pv.z);
+
+					var temp1 = new THREE.Vector3 ((1+damping)*(dotProdPos+d)*n.x, ((1+damping)*(dotProdPos+d))*n.y, ((1+damping)*(dotProdPos+d))*n.z);
+					var temp2 = new THREE.Vector3 ((1+damping)*(dotProdVel)*n.x, ((1+damping)*(dotProdVel))*n.y, ((1+damping)*(dotProdVel))*n.z);
+
+					pp.set(pp.x-temp1.x,pp.y-temp1.y ,pp.z-temp1.z);
+					pv.set(pv.x-temp2.x,pv.y-temp2.y ,pv.z-temp2.z);
+				}
+
+				//##################SOLVER
+				for (var i = 1; i < particleCount; i++) {
+					particles[i].force.copy(gravF.clone());
+					particles[i].force.add(springs[i-1].clone().negate());
+
+					if(i<particleCount-1){	particles[i].force.add(springs[i]);}
+
+					//solver
+
+					particles[i].prevPos.copy(particles[i].position);
+
+					particles[i].velocity.add(particles[i].force.clone().multiplyScalar(dt));
+					particles[i].position.add(particles[i].velocity.clone().multiplyScalar(dt));
+
+				}
+
+				renderer.render( scene, camera );
+      }
+
+			animate();
+		</script>
+	</body>
+</html>
